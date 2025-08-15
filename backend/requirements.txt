@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+PyPDF2
+docx2txt
+pymupdf
+pandas
+numpy
+spacy
+transformers
+scikit-learn
+langchain
+qdrant-client
+pymongo
