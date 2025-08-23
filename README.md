@@ -6,11 +6,11 @@ An intelligent full-stack application designed to help job seekers optimize thei
 
 ## Key Features
 
--   [cite_start]**Resume Parsing:** Extracts key information from uploaded resumes, including contact details, skills, experience, and education[cite: 110].
--   [cite_start]**Skill Extraction & Gap Analysis:** Identifies skills present in the resume and compares them against a target job description to find keyword gaps[cite: 110].
+-   **Resume Parsing:** Extracts key information from uploaded resumes, including contact details, skills, experience, and education.
+-   **Skill Extraction & Gap Analysis:** Identifies skills present in the resume and compares them against a target job description to find keyword gaps.
 -   **Job Match Scoring:** Generates a score indicating how well a resume matches a job description, helping users tailor their applications.
--   [cite_start]**Semantic Search:** Uses a vector database to find semantically similar skills and job roles, going beyond simple keyword matching[cite: 111].
--   [cite_start]**Interactive Dashboard:** Visualizes the analysis results using dynamic charts and graphs for an intuitive user experience[cite: 111].
+-   **Semantic Search:** Uses a vector database to find semantically similar skills and job roles, going beyond simple keyword matching.
+-   **Interactive Dashboard:** Visualizes the analysis results using dynamic charts and graphs for an intuitive user experience.
 
 ## Tech Stack
 
@@ -18,9 +18,9 @@ An intelligent full-stack application designed to help job seekers optimize thei
 | ------------- | ---------------------------------------------------- |
 | **Backend** | FastAPI, Python                                     |
 | **Frontend** | React, Tailwind CSS                                  |
-| **Database** | [cite_start]MongoDB (Primary Storage), Qdrant/FAISS (Vector DB) [cite: 109, 111] |
-| [cite_start]**NLP** | spaCy, Hugging Face Transformers                     [cite: 110] |
-| **Dashboard** | [cite_start]Plotly.js                                            [cite: 111] |
+| **Database** | MongoDB (Primary Storage), Qdrant/FAISS (Vector DB) |
+| **NLP** | spaCy, Hugging Face Transformers                     |
+| **Dashboard** | Plotly.js                                            |
 
 ## Getting Started
 
@@ -34,20 +34,22 @@ An intelligent full-stack application designed to help job seekers optimize thei
 
 1.  **Clone the repository:**
     ```sh
-    git clone [https://github.com/YOUR-USERNAME/RESUME-ANALYSER-PROJECT.git](https://github.com/YOUR-USERNAME/RESUME-ANALYSER-PROJECT.git)
+    git clone [https://github.com/ANIRUDDH-VIJAY/RESUME-ANALYSER-PROJECT.git](https://github.com/ANIRUDDH-VIJAY/RESUME-ANALYSER-PROJECT.git)
     cd RESUME-ANALYSER-PROJECT
     ```
 
 2.  **Backend Setup (FastAPI):**
     ```sh
-    cd backend
+    # From the root directory
+    cd backend 
     pip install -r requirements.txt
     uvicorn main:app --reload
     ```
 
 3.  **Frontend Setup (React):**
     ```sh
-    cd frontend
+    # From the root directory
+    cd resume-analyzer-ui
     npm install
     npm start
     ```
