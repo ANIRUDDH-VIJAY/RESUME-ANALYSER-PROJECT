@@ -14,7 +14,6 @@ import spacy # Import spacy for the NER model
 
 # Import your nlp_processing functions
 from backend.utils.nlp_processing import extract_skills, calculate_job_fit_score
-
 # --- Model Loading for Job Role Classifier ---
 job_role_vectorizer = None
 job_role_model = None

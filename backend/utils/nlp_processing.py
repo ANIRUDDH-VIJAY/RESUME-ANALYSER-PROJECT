@@ -1,271 +1,215 @@
-# backend/utils/nlp_processing.py
-
-import spacy
 import re
-from typing import List, Dict, Set
+import spacy
+from collections import Counter
+import os # Import os for path manipulation
 
-# Load spaCy model
+# --- Global spaCy Model Loading ---
+# Load the custom NER model globally when the module is imported
+# This avoids loading it for every function call, improving performance.
+nlp_custom_ner = None
 try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    print("SpaCy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
-    exit()
+    # Use a relative path from the nlp_processing.py file's location
+    # Assumes nlp_processing.py is in backend/utils/
+    # and the model is in backend/models/ner_model/model-best/
+    current_dir = os.path.dirname(__file__)
+    ner_model_path = os.path.join(current_dir, '../models/ner_model/model-best')
 
-# --- Canonical List of Skills & Aliases ---
-# Key: canonical skill name (preferred display/comparison form)
-# Value: a set of all its common lowercase aliases/variations found in text
+    # Check if 'model-best' exists, otherwise try 'model-last'
+    if not os.path.exists(ner_model_path):
+        ner_model_path = os.path.join(current_dir, '../models/ner_model/model-last')
+        print("model-best not found, attempting to load model-last.")
+
+    if os.path.exists(ner_model_path):
+        nlp_custom_ner = spacy.load(ner_model_path)
+        print(f"Custom NER model loaded successfully from: {ner_model_path}")
+    else:
+        print(f"Custom NER model not found at: {ner_model_path}. Continuing without custom NER.")
+
+except Exception as e:
+    print(f"Error loading custom NER model for nlp_processing: {e}")
+    nlp_custom_ner = None # If model fails to load, handle gracefully
+
+# --- Comprehensive List of Known Skills (Your existing rule-based foundation) ---
+# This should include a wide range of programming languages, tools, frameworks etc.
+# You can expand this list significantly over time.
 CANONICAL_SKILLS_MAP = {
-    "Python": {"python"}, "Java": {"java"}, "C++": {"c++"}, "C#": {"c#"},
-    "JavaScript": {"javascript", "js"}, "TypeScript": {"typescript"}, "React": {"react", "reactjs"},
-    "Node.js": {"node.js", "nodejs"}, "Angular": {"angular", "angularjs"}, "Vue.js": {"vue.js", "vuejs"},
-    "SQL": {"sql", "mysql", "postgresql", "sqlite"},
-    "NoSQL": {"nosql", "mongodb", "cassandra", "redis", "couchbase"}, # All related NoSQL dbs map to NoSQL
-    "ML": {"machine learning", "ml", "machinelearning"},
-    "Deep Learning": {"deep learning", "dl", "deeplearning"},
-    "NLP": {"nlp", "natural language processing"},
-    "Data Analysis": {"data analysis", "data analytics"},
-    "Data Science": {"data science"}, "Computer Vision": {"computer vision"}, "AI": {"artificial intelligence", "ai"},
-    "HTML": {"html"}, "CSS": {"css"}, "Redux": {"redux"}, "Express.js": {"express.js", "expressjs"},
-    "Django": {"django"}, "Flask": {"flask"}, "FastAPI": {"fastapi"}, "Spring Boot": {"spring boot"},
-    "AWS": {"aws", "amazon web services"}, "Azure": {"azure", "microsoft azure"}, "GCP": {"gcp", "google cloud platform"},
-    "Docker": {"docker", "containerization"},
-    "Kubernetes": {"kubernetes"}, "Git": {"git"}, "Jira": {"jira"}, "Jenkins": {"jenkins"},
-    "Travis CI": {"travis ci"}, "CircleCI": {"circleci"},
-    "TensorFlow": {"tensorflow"}, "PyTorch": {"pytorch"}, "Scikit-learn": {"scikit-learn"},
-    "Pandas": {"pandas"}, "NumPy": {"numpy"}, "Matplotlib": {"matplotlib"}, "Seaborn": {"seaborn"},
-    "Agile": {"agile"}, "Scrum": {"scrum"}, "DevOps": {"devops"}, "CI/CD": {"ci/cd"},
-    "REST API": {"rest api", "restful", "restful api", "restful services"},
-    "Microservices": {"microservices", "microservice"}, "Unit Testing": {"unit testing"}, "Integration Testing": {"integration testing"},
-    "Linux": {"linux"}, "Unix": {"unix"}, "Bash": {"bash"}, "Shell Scripting": {"shell scripting"},
-    "API Development": {"api development"}, "Web Development": {"web development", "full stack web development"},
-    "Mobile Development": {"mobile development"}, "Cloud Computing": {"cloud computing", "cloud platforms", "cloud"},
-    "Big Data": {"big data"}, "Spark": {"spark", "apache spark"}, "Hadoop": {"hadoop"}, "Kafka": {"kafka"},
-    "ETL": {"etl", "extract transform load", "apache airflow"},
-    "Data Warehousing": {"data warehousing"},
-    "Object-Oriented Programming": {"object-oriented programming", "oop"}, "Functional Programming": {"functional programming"},
-    "Algorithms": {"algorithms", "data structures and algorithms"},
-    "Data Structures": {"data structures"},
-    "Cybersecurity": {"cybersecurity"}, "Network Security": {"network security"}, "Cloud Security": {"cloud security"},
-    "Blockchain": {"blockchain"}, "Solidity": {"solidity"},
-    "UI/UX Design": {"ui/ux design"}, "Figma": {"figma"}, "Sketch": {"sketch"}, "Adobe XD": {"adobe xd"},
-    "Photoshop": {"photoshop"}, "Illustrator": {"illustrator"},
-    "Project Management": {"project management"},
-    "Risk Management": {"risk management"}, "Business Analysis": {"business analysis"}, "Requirements Gathering": {"requirements gathering"},
-    "Technical Documentation": {"technical documentation"}, "Communication": {"communication"}, "Teamwork": {"teamwork"},
-    "Problem Solving": {"problem solving"}, "Leadership": {"leadership"},
-    "Microsoft Office": {"microsoft office", "ms office"}, "Excel": {"excel"}, "PowerPoint": {"powerpoint"}, "Word": {"word"}, "Google Workspace": {"google workspace", "gsuite"},
-    "R": {"r"}, "Go": {"go"}, "Rust": {"rust"}, "Swift": {"swift"}, "Kotlin": {"kotlin"}, "PHP": {"php"}, "Laravel": {"laravel"},
-    "Ruby": {"ruby"}, "Ruby on Rails": {"ruby on rails"}, "XGBoost": {"xgboost"}, "Streamlit": {"streamlit"},
-    "Statistical Modeling": {"statistical modeling", "statistics", "probability"},
-    "Container Orchestration": {"container orchestration"},
-    "MLOps": {"mlops", "machine learning operations", "kubeflow"}
+    # Programming Languages
+    "python": "Python", "py": "Python",
+    "java": "Java", "c++": "C++", "c#": "C#", "c": "C",
+    "javascript": "JavaScript", "js": "JavaScript", "typescript": "TypeScript",
+    "go": "Go", "golang": "Go", "ruby": "Ruby", "php": "PHP",
+    "swift": "Swift", "kotlin": "Kotlin", "scala": "Scala", "r": "R",
+    "html": "HTML", "css": "CSS", "sql": "SQL", "bash": "Bash",
+    "matlab": "MATLAB", "rust": "Rust", "perl": "Perl", "dart": "Dart",
+
+    # Frameworks & Libraries
+    "django": "Django", "flask": "Flask", "fastapi": "FastAPI",
+    "react": "React.js", "reactjs": "React.js", "angular": "Angular", "vue": "Vue.js",
+    "nodejs": "Node.js", "node.js": "Node.js", "express": "Express.js",
+    "spring": "Spring Boot", "spring boot": "Spring Boot",
+    "pytorch": "PyTorch", "tensorflow": "TensorFlow", "keras": "Keras",
+    "scikit-learn": "scikit-learn", "sklearn": "scikit-learn",
+    "numpy": "NumPy", "pandas": "Pandas", "matplotlib": "Matplotlib", "seaborn": "Seaborn",
+    "hadoop": "Hadoop", "spark": "Spark", "airflow": "Airflow",
+    "kafka": "Kafka", "docker": "Docker", "kubernetes": "Kubernetes", "k8s": "Kubernetes",
+    "aws": "AWS", "amazon web services": "AWS", "azure": "Azure", "gcp": "GCP", "google cloud": "GCP",
+    "git": "Git", "github": "GitHub", "gitlab": "GitLab", "bitbucket": "Bitbucket",
+    "jenkins": "Jenkins", "travis ci": "Travis CI", "gitlab ci": "GitLab CI",
+
+    # Databases
+    "mysql": "MySQL", "postgresql": "PostgreSQL", "postgres": "PostgreSQL",
+    "mongodb": "MongoDB", "mongo": "MongoDB", "sqlite": "SQLite",
+    "oracle": "Oracle DB", "redis": "Redis", "cassandra": "Cassandra",
+
+    # Concepts/Domains
+    "machine learning": "Machine Learning", "ml": "Machine Learning",
+    "deep learning": "Deep Learning", "dl": "Deep Learning",
+    "natural language processing": "NLP", "nlp": "NLP",
+    "computer vision": "Computer Vision", "cv": "Computer Vision",
+    "data science": "Data Science", "data analysis": "Data Analysis",
+    "big data": "Big Data", "cloud computing": "Cloud Computing",
+    "devops": "DevOps", "agile": "Agile", "scrum": "Scrum",
+    "api development": "API Development", "web development": "Web Development",
+    "mobile development": "Mobile Development", "testing": "Testing",
+    "blockchain": "Blockchain", "cybersecurity": "Cybersecurity",
+    "network security": "Network Security", "data structures": "Data Structures",
+    "algorithms": "Algorithms", "object-oriented programming": "OOP", "oop": "OOP",
+
+    # Operating Systems/Tools
+    "linux": "Linux", "unix": "Unix", "windows": "Windows", "excel": "Excel",
+    "powerpoint": "PowerPoint", "jira": "Jira", "confluence": "Confluence",
+    "tableau": "Tableau", "power bi": "Power BI", "looker": "Looker",
+    "salesforce": "Salesforce",
+
+    # Add more as needed based on common skills in resumes/JDs
 }
 
-# Invert the map for efficient lookup of canonical form from any alias
-ALIAS_TO_CANONICAL = {alias: canonical for canonical, aliases in CANONICAL_SKILLS_MAP.items() for alias in aliases}
+# Compile regex patterns for faster matching (optional but good for large lists)
+compiled_skill_patterns = {
+    re.compile(r'\b' + re.escape(alias) + r'\b', re.IGNORECASE): canonical_name
+    for alias, canonical_name in CANONICAL_SKILLS_MAP.items()
+}
+
+# Entities that might be misclassified as skills (e.g., locations, metrics)
+non_skill_entities_lower = set([
+    "usa", "india", "london", "new york", "los angeles", "california", "texas",
+    "master", "bachelor", "degree", "phd", "university", "college",
+    "experience", "years", "months", "team", "project", "client", "customer",
+    "management", "senior", "junior", "lead", "associate", "analyst", "engineer",
+    "developer", "scientist", "manager", "director", "specialist",
+    "rmse", "mae", "accuracy", "precision", "recall", "f1", "f1-score",
+    # Add labels from your spaCy NER model here if they are NOT skills but might be extracted
+    # Example: "EDUCATIONAL_REQUIREMENTS", "EXPERIENCE_LEVEL", "REQUIRED_SKILLS"
+    "educational_requirements", "experience_level", "required_skills"
+])
+
+compiled_exclusion_patterns = [
+    re.compile(r'\b\d{1,2}\s*(?:years?|yrs?|months?)\b', re.IGNORECASE), # e.g., "5 years"
+    re.compile(r'\b(?:master\'?s|bachelor\'?s|ph\.?d\.?|associate\'?s)\b', re.IGNORECASE), # degrees
+    re.compile(r'\b(?:university|college|institute)\b', re.IGNORECASE), # educational institutions
+]
 
 
-# Helper to get the canonical form of a skill (returns canonical or original text if not found)
-def _get_canonical_skill(skill_text: str) -> str:
-    return ALIAS_TO_CANONICAL.get(skill_text.lower(), skill_text)
+def _normalize_skill_casing(skill_name: str) -> str:
+    """Normalizes skill casing for consistency (e.g., 'python' -> 'Python')."""
+    return CANONICAL_SKILLS_MAP.get(skill_name.lower(), skill_name)
 
+def extract_skills(text: str) -> list:
+    """
+    Extracts skills from text using a combination of custom NER and rule-based matching.
+    """
+    if not text:
+        return []
 
-# Helper to normalize skill casing for display based on its canonical form
-def _normalize_skill_casing(skill_text: str) -> str:
-    canonical = _get_canonical_skill(skill_text)
-    # Return the canonical form's preferred casing from CANONICAL_SKILLS_MAP keys
-    for predefined_skill_key in CANONICAL_SKILLS_MAP.keys():
-        if predefined_skill_key == canonical:
-            return predefined_skill_key
-    # Fallback if somehow a skill isn't in canonical map keys (shouldn't happen with good mapping)
-    return canonical.title()
+    found_skills_raw = set() # Use a raw set for initial collection
 
+    # --- 1. Extract entities using the custom spaCy NER model ---
+    if nlp_custom_ner:
+        doc = nlp_custom_ner(text)
+        for ent in doc.ents:
+            # Here, you need to decide which labels from your custom NER model
+            # should be treated as "skills".
+            # Based on your training, these are likely: 'EDUCATIONAL_REQUIREMENTS', 'EXPERIENCE_LEVEL', 'REQUIRED_SKILLS'.
+            # If your future training adds a specific 'SKILL' label, you'd add:
+            # if ent.label_ in ["SKILL", "TECHNICAL_SKILL", "REQUIRED_SKILLS"]:
+            if ent.label_ in ["EDUCATIONAL_REQUIREMENTS", "EXPERIENCE_LEVEL", "REQUIRED_SKILLS"]:
+                 found_skills_raw.add(ent.text.strip())
+            # For now, let's also pass the *entire text* through the rule-based system
+            # as the current NER model doesn't explicitly detect granular "SKILL" type entities.
 
-def extract_skills(text: str) -> List[str]:
+    # --- 2. Extract skills using rule-based/lexicon matching (from your original logic) ---
     text_lower = text.lower()
-    doc = nlp(text_lower)
-    found_skills_canonical_lower: Set[str] = set() # Store canonical, lowercased forms for true uniqueness
+    for pattern, canonical_name in compiled_skill_patterns.items():
+        if pattern.search(text_lower):
+            found_skills_raw.add(canonical_name)
 
-    # --- Strict non-skill entities and exclusion patterns ---
-    # Expanded and refined further
-    non_skill_entities_lower = {
-        # General terms (expanded to filter more aggressively)
-        "company", "project", "team", "solution", "system", "role", "position", "highlights",
-        "experience", "responsibilities", "qualifications", "education", "benefits", "overview", "job overview",
-        "intern", "engineer", "analyst", "developer", "manager", "specialist", "scientist", "firm",
-        "client", "customer", "stakeholder", "user", "model", "product", "services", "building", "implementing",
-        "research", "development", "design", "testing", "management", "quality", "quality assurance",
-        "business", "strategy", "metrics", "performance", "optimization", "growth", "impact",
-        "problem", "flow", "workflow", "process", "report", "communication", "leadership", "teamwork", "problem solving",
-        "agile", "scrum", "kanban", "methodology", "methodologies", "principles", "concepts", "frameworks",
-        "platform", "library", "tool", "software", "hardware", "service", "api", "database",
-        "server", "architecture", "security", "data", "science", "learning", "network", "cloud",
-        "computing", "analytics", "prediction", "forecasting", "technical", "documentation",
-        "requirements", "gathering", "mobile", "web", "full stack", "distributed", "frontend", "backend",
-        "quantitative", "foundation", "foundations", "exposure", "theory", "theoretical", "related",
-        "rmse", "linear", "alpha", "delta", "gpa", "india", "jaipur", "delhi", "mumbai", "location", # Locations, metrics, generic words
-        "june", "march", "may", "jan", "jun", "february", "april", "july", "august", "september", "october", "november", "december", # Month names
-        "2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030", # Years
-        "microsoft", "google", "amazon", "apple", "ibm", "oracle", "accenture", "tata", # Major companies (unless specific product)
-        "gmail", "linkedin", "github", "powerpoint", "excel", "word", "outlook", "vs code", # Generic software/platforms
-        "pythonsoftwarefoundation", "explosion", # From tracebacks/system
-        "records", "rows", "features", "datasets", "day", "days", "months", "years", "percent", "rate", # Units/quantities
-        "cut", "achieved", "engineered", "spearheaded", "optimized", "collaborated", "championed", "managed", "solved", "built", "implemented", "utilized", "contributing", "designing", "maintaining", "integrate", "conduct", "participate", "translate", "ensure", "monitor", # Action verbs
-        "pipeline", "pipelines", "models", "systems", "architecture", "products", "environment", "environments", "lifecycle",
-        "workflow orchestration tools", "data visualization tools", # Generic descriptions for tool categories
-        "job", "title", "company", "about", "overview", "responsibilities", "required", "preferred", "qualifications", "benefits",
-        "experience highlights", "selected projects", "technical skills", "education", "certifications", "profile", # Section headers
-        "api development", "web development", "mobile development", # These are skills, but included to ensure custom processing
-        "high school", "diploma", "honours", "hons", "bachelor", "master", "phd", "university", "college", "school", "institute", # Education related terms
-        "full stack" # Part of "full stack web development", ensure it's not picked up alone
-    }
+    # --- 3. Filter out non-skills using exclusion lists and patterns ---
+    filtered_skills = set()
+    for skill in found_skills_raw:
+        skill_lower = skill.lower()
 
-    compiled_exclusion_patterns = [
-        re.compile(r"^\d+(\.\d+)?%?$"), # Percentages like "87%" or just "87"
-        re.compile(r"^\d+$"), # Pure numbers
-        re.compile(r"^\w\s*\d+(\.\d+)?$"), # Single letter + number (e.g., c 2025), potentially with decimals
-        re.compile(r"^\d{4}$"), # Years
-        re.compile(r"rmse(~)?\s*\d+(\.\d+)?"), # RMSE values (more robust)
-        re.compile(r"\b(hours|minutes|seconds|days|weeks|months|years|records|features|rows)\b", re.IGNORECASE), # Units
-        re.compile(r"^\s*[\-\*]\s*"), # Bullet points (more robust)
-        re.compile(r"^(?=.*\d)(?=.*[a-zA-Z]).+$") # Alphanumeric strings that might be codes/ids, not skills (e.g., "ID123")
-    ]
-
-
-    # --- Extraction Logic ---
-    # Phase 1: Match from the canonical map's aliases
-    for canonical_skill, aliases in CANONICAL_SKILLS_MAP.items():
-        for alias in aliases:
-            # Check for the alias in the text
-            if re.search(r'\b' + re.escape(alias) + r'\b', text_lower):
-                found_skills_canonical_lower.add(canonical_skill.lower()) # Add canonical (lowercased) form
-
-
-    # Phase 2: NER entities with filtering
-    for ent in doc.ents:
-        entity_text = ent.text.strip()
-        normalized_ent_text_lower = entity_text.lower()
-
-        # Apply basic length filter (skip single characters or very long phrases)
-        if not (1 <= len(entity_text.split()) <= 5):
+        # Basic exact match exclusion
+        if skill_lower in non_skill_entities_lower:
             continue
 
-        # Check against non-skill list and compiled regex patterns
-        if normalized_ent_text_lower in non_skill_entities_lower or \
-           any(pattern.search(normalized_ent_text_lower) for pattern in compiled_exclusion_patterns):
+        # Exclusion using compiled regex patterns
+        is_excluded = False
+        for pattern in compiled_exclusion_patterns:
+            if pattern.search(skill_lower):
+                is_excluded = True
+                break
+        if is_excluded:
             continue
 
-        # Convert entity text to its canonical form if it's an alias
-        canonical_from_ner = ALIAS_TO_CANONICAL.get(normalized_ent_text_lower)
+        # Further simple length filtering to avoid very short common words
+        if len(skill_lower) <= 2:
+             # Allow common short tech acronyms
+            if skill_lower not in ["ci", "ml", "dl", "ai", "db", "os", "qa", "hr"]:
+                continue
 
-        if canonical_from_ner:
-            found_skills_canonical_lower.add(canonical_from_ner.lower())
-        # If not a known alias, consider adding based on NER label (with caution)
-        elif ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "WORK_OF_ART", "EVENT"]:
-            # Only add if it's not a generic company name or too broad and is likely a skill
-            if normalized_ent_text_lower not in ["microsoft", "google", "amazon", "apple", "ibm", "oracle", "apache"]: # Avoid very broad company names unless they are also specific products
-                found_skills_canonical_lower.add(entity_text.lower()) # Add lowercased original, will be canonicalized later
-        elif ent.label_ == "PERSON":
-            # Special case for 'R' language if it gets tagged as PERSON
-            if normalized_ent_text_lower == "r":
-                found_skills_canonical_lower.add("r")
-            else:
-                continue # Skip other general person names
+        # Normalize casing for consistency
+        filtered_skills.add(_normalize_skill_casing(skill))
+
+    return sorted(list(filtered_skills))
 
 
-    # Phase 3: Broad regex patterns (for skills potentially missed by NER/direct list)
-    tech_patterns = [
-        r"\b(?:c\+\+|c#|node\.js|vue\.js|react\.js|\.net|sql|nosql|restful|graphql)\b",
-        r"\b(api|rest|graphql|oauth|jwt)\b",
-        r"\b(cloud|azure|aws|gcp|vmware)\b",
-        r"\b(ml|ai|dl|nlp|mlops)\b",
-        r"\b(ci\/cd|devops|etl)\b",
-        r"\b(xgboost|streamlit|jupyter)\b",
-        r"\b(data analysis|data science|machine learning|deep learning|computer vision)\b",
-        r"\b(algorithms|data structures|object-oriented programming|functional programming)\b",
-        r"\b(pytorch|tensorflow|scikit-learn|pandas|numpy|matplotlib|seaborn)\b",
-        r"\b(big data|time series analysis|container orchestration|data warehousing)\b",
-        r"\b(project management|risk management|statistical modeling|web development|api development|mobile development|business analysis|requirements gathering|technical documentation)\b",
-        r"\b(linux|unix|bash|shell scripting)\b",
-        r"\b(jira|jenkins|travis ci|circleci|git)\b",
-        r"\b(express\.js|django|flask|spring boot)\b",
-        r"\b(html|css|redux)\b"
-    ]
-    for pattern in tech_patterns:
-        for match in re.findall(pattern, text_lower):
-            found_skills_canonical_lower.add(_get_canonical_skill(match).lower()) # Add canonical (lowercased) form
+def calculate_job_fit_score(resume_skills: list, jd_skills: list) -> dict:
+    """
+    Calculates a job fit score based on matched, missing, and extra skills.
+    Assumes skills are normalized (e.g., "Python", "AWS").
+    """
+    if not jd_skills:
+        return {
+            "fit_score": 0,
+            "matched_skills": [],
+            "missing_skills": [],
+            "extra_skills": sorted(list(set(resume_skills)))
+        }
 
-    # Final Deduplication & Canonical Casing for display
-    # Convert the set of lowercased canonical forms to a sorted list of preferred-cased canonical forms
-    final_display_skills: List[str] = sorted(list(_normalize_skill_casing(s) for s in found_skills_canonical_lower))
+    resume_skills_set = set(s.lower() for s in resume_skills)
+    jd_skills_set = set(s.lower() for s in jd_skills)
 
-    return final_display_skills
+    matched_skills_raw = resume_skills_set.intersection(jd_skills_set)
+    missing_skills_raw = jd_skills_set.difference(resume_skills_set)
+    extra_skills_raw = resume_skills_set.difference(jd_skills_set)
+
+    # Convert back to original casing using the CANONICAL_SKILLS_MAP where possible
+    matched_skills = sorted(list(set(_normalize_skill_casing(s) for s in matched_skills_raw)))
+    missing_skills = sorted(list(set(_normalize_skill_casing(s) for s in missing_skills_raw)))
+    extra_skills = sorted(list(set(_normalize_skill_casing(s) for s in extra_skills_raw)))
 
 
-# calculate_job_fit_score remains the same as it relies on the output of extract_skills
-def calculate_job_fit_score(resume_skills: List[str], jd_skills: List[str]) -> Dict[str, any]:
-    # Debug prints (keep these for now to monitor)
-    print(f"\n--- Debug: calculate_job_fit_score called ---")
-    print(f"Resume skills received ({len(resume_skills)}): {resume_skills}") # Print full lists now
-    print(f"JD skills received ({len(jd_skills)}): {jd_skills}")
-
-    # Normalize all skills to lowercase canonical forms for robust set operations
-    resume_skills_lower = set(_get_canonical_skill(skill).lower() for skill in resume_skills)
-    jd_skills_lower = set(_get_canonical_skill(skill).lower() for skill in jd_skills)
-
-    print(f"Resume skills lower ({len(resume_skills_lower)}): {resume_skills_lower}")
-    print(f"JD skills lower ({len(jd_skills_lower)}): {jd_skills_lower}")
-
-
-    # Find common skills (intersection of lowercased canonical sets)
-    matched_lower_skills = resume_skills_lower.intersection(jd_skills_lower)
-
-    # Convert back to consistently cased skills for presentation
-    # Ensure no duplicates in the output lists (already handled by set logic, but _normalize_skill_casing might yield same str from different inputs)
-    matched_skills = []
-    seen_matched = set()
-    for s in jd_skills: # Iterate JD skills as primary source for 'matched' list order/preference
-        canonical_s = _get_canonical_skill(s)
-        normalized_s_display = _normalize_skill_casing(canonical_s)
-        if canonical_s.lower() in matched_lower_skills and normalized_s_display not in seen_matched:
-            matched_skills.append(normalized_s_display)
-            seen_matched.add(normalized_s_display)
-    matched_skills.sort()
-
-    missing_skills = []
-    seen_missing = set()
-    for s in jd_skills:
-        canonical_s = _get_canonical_skill(s)
-        normalized_s_display = _normalize_skill_casing(canonical_s)
-        if canonical_s.lower() not in resume_skills_lower and normalized_s_display not in seen_missing:
-            missing_skills.append(normalized_s_display)
-            seen_missing.add(normalized_s_display)
-    missing_skills.sort()
-
-    extra_skills = []
-    seen_extra = set()
-    for s in resume_skills: # Iterate resume skills for 'extra' list
-        canonical_s = _get_canonical_skill(s)
-        normalized_s_display = _normalize_skill_casing(canonical_s)
-        if canonical_s.lower() not in jd_skills_lower and normalized_s_display not in seen_extra:
-            extra_skills.append(normalized_s_display)
-            seen_extra.add(normalized_s_display)
-    extra_skills.sort()
-
-    # Calculate score based on the count of unique matched lowercased canonical skills
-    score = 0
-    if len(jd_skills_lower) > 0:
-        score = (len(matched_lower_skills) / len(jd_skills_lower)) * 100
-    score = round(score, 2)
-
-    print(f"Fit score calculated: {score}")
-    print(f"Matched skills: {matched_skills}")
-    print(f"Missing skills: {missing_skills}")
-    print(f"Extra skills: {extra_skills}")
-    print(f"--- Debug: calculate_job_fit_score finished ---")
+    # Calculate fit score (simple ratio for now)
+    # You can make this more sophisticated (e.g., weighted skills, importance)
+    if not jd_skills_set:
+        fit_score = 0
+    else:
+        fit_score = (len(matched_skills_raw) / len(jd_skills_set)) * 100
+        # Cap score at 100%
+        fit_score = min(100, round(fit_score, 2))
 
     return {
-        "fit_score": score,
+        "fit_score": fit_score,
         "matched_skills": matched_skills,
         "missing_skills": missing_skills,
         "extra_skills": extra_skills
